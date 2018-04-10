@@ -1,0 +1,75 @@
+---
+title: "lab1_ckp4"
+author: "Fernando Lordao"
+date: "9 de abril de 2018"
+output: html_document
+---
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(knitr)
+theme_set(theme_bw())
+```
+
+## Lendo os dados
+
+Os dados já processados dos projetos
+
+```{r read}
+projetos = read_csv(here::here("data/projetos.csv"))
+```
+
+## Descrição Inicial
+
+Trabalho da disciplina FPCC2 com objetivo de exercitar a manipulação de um conjunto de dados e extrair informações relevantes.
+
+## Objetivos
+
+Elaborar duas perguntas que possam ser lançadas a respeito dos dados e tentar elucidá-las utilizando as ferramentas vistas em sala.
+
+## Pergunta 1
+
+As equipes mais propensas a escrever testes são as equipes de qual linguagem?
+
+Exemplo de resposta: as equipes que trabalhan com java são mais propensas a escrever testes de software, pois observamos uma maior quantidade de testes nos projetos que utilizam Java.
+
+## Pergunta 2
+
+Será que projetos pequenos no que diz respeito à quantidade de linhas de código alcançam sucesso mais facilmente que projetos grandes?
+
+Exemplo de resposta: apesar de projetos grandes apresentarem maior complexidade decorrente do aumento na quantidade linhas, não é possível deduzir relação entre a taxa de sucesso e a quantidade de linhas do projeto.
+
+## Exploração para resposta da pergunta 1
+
+Inicialmante vamos plotar tests_per_klok vs lang para tentar visualizar uma relação entre elas.
+
+```{r plotting tests}
+projetos %>% 
+    ggplot(aes(x = lang, 
+               y = tests_per_kloc)) + 
+    geom_jitter(alpha = .4, width = .2, size = .8) 
+```
+
+Observações iniciais:
+
+1) Apareceu a linguagem "javascript" com pouquíssima representatividade e faremos uma exclusão dela para analisar apenas as demais ("java" e "ruby").
+
+```{r filtering}
+projetos = projetos %>% 
+    filter(lang != "javascript")
+```
+
+2) Há pontos isolados na parte mais alta do eixo-y e muitos pontos concentrados na parte mais baixa, tumultuando a base do gráfico e dificultando uma leitura clara da distribuição.
+
+Vamos então modificar o eixo-y para escala logarítmica para realçar a região "tumultuada".
+
+```{r log scaling}
+projetos %>% 
+    ggplot(aes(x = lang, 
+               y = tests_per_kloc)) + 
+    geom_jitter(alpha = .4, width = .2, size = .8) +
+    scale_y_log10()
+```
+
+Agora observamos visualmente que Ruby concentra maior quantidede de testes
