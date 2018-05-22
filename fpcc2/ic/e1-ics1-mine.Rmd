@@ -1,0 +1,92 @@
+---
+title: "e1-ics1-mine"
+author: "Fernando Lordao"
+date: "2 de maio de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(boot)
+library(ggplot2)
+```
+
+## Understanding ICs - Exercise 1 (FPCC2)
+
+Synthesizing population...
+
+```{r}
+
+set.seed(1234)
+
+populacao1 = tibble(participante = 1:10000, 
+                    tempo_no_site = 100 * rweibull(10000, 1, 1))
+
+glimpse(populacao1)
+
+```
+
+Summarizing population
+
+```{r}
+summary(populacao1$tempo_no_site)
+```
+
+Sampling
+
+```{r}
+uma_amostra = sample_n(populacao1, 100)
+
+glimpse(uma_amostra)
+```
+
+Creating bootstraps
+
+```{r}
+funcao_bootstrap <- function(dado, indices){
+    d = dado %>% 
+        slice(indices) %>% # slice(x, c(1, 4, 5)) retorna um vetor com os elementos nos índices 1, 4 e 5 de x
+        pull(tempo_no_site)         # tempo_no_site é o nome da variável que nos interessa
+    return(median(d))
+}
+
+bootstraps <- boot(data = uma_amostra, 
+                   statistic = funcao_bootstrap, # <- referência para a função 
+                   R = 2000) # número de bootstraps
+
+glimpse(bootstraps$t)
+```
+
+Plotting sampled distribution
+
+```{r}
+tibble(estatistica = as.double(bootstraps$t)) %>% 
+  ggplot(aes(x = estatistica)) + 
+  geom_histogram(binwidth = 2, fill = "white", color = "pink")
+```
+
+Plotting differences
+
+```{r}
+diferencas = tibble(dif = as.double(bootstraps$t) - mean(uma_amostra$tempo_no_site))
+
+diferencas %>% 
+  ggplot(aes(x = dif)) + 
+  geom_histogram(binwidth = 2, fill = "white", color = "pink") + 
+  geom_vline(xintercept = quantile(diferencas$dif, 0.025)[[1]]) + 
+  geom_vline(xintercept = quantile(diferencas$dif, 0.975)[[1]])
+```
+
+Calculating confidence interval supposing a distribution with type = "basic"
+
+```{r}
+boot.ci(bootstraps, conf = 0.95, type = "basic")
+```
+
+
+Calculating confidence interval supposing a distribution with type = "bca"
+
+```{r}
+boot.ci(bootstraps, conf = 0.95, type = "bca")
+```
