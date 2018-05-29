@@ -1,0 +1,168 @@
+---
+title: "lab3-ckp4"
+author: "Fernando Lordao"
+date: "28 de maio de 2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r General Configuration}
+running_mode = "finalWeb"
+#running_mode = "reducedLocal"
+#running_mode = "finalLocal"
+
+if(running_mode == "finalWeb") {
+    path_to_read = "https://github.com/wikimedia-research/Discovery-Hiring-Analyst-2016/raw/master/events_log.csv.gz"
+    lines_to_read = -1
+} else if(running_mode == "finalLocal") {
+    path_to_read = "data/events_log.csv"
+    lines_to_read = -1
+} else if(running_mode == "reducedLocal") {
+    path_to_read = "data/events_log.csv"
+    lines_to_read = 5000
+} else {
+    message("Running mode not specified.")
+    break() #encontrar a funÃ§Ã£o certa para finalizar o script.
+}
+
+set.seed(20180528)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(chron)
+library(resample)
+theme_set(theme_bw())
+```
+
+## Descrição geral
+
+Neste documento vamos explorar os dados disponibilizados pela Wikimedia e tentar responder às questões levantadas fazendo inferências sobre a população através de *testes de hipóteses*.
+
+Para esse estudo iremos revisitar as questões 1 e 3 ajustando-as para o cenário de testes de hipóteses onde compararemos o comportamento de dois grupos.
+
+
+## Carga do log de eventos
+
+```{r ETL}
+events = read_csv(path_to_read) %>% 
+    head(lines_to_read)
+
+events = events %>% 
+    mutate(
+        date = round_date(ymd_hms(timestamp), unit = "day"),
+        date_week = paste(date, weekdays(date, abbreviate = TRUE))
+    )
+```
+
+## PERGUNTA 1:
+## Existe diferença significativa entre a taxa geral de cliques dos grupos?
+
+Conforme descrição do problema pela Wikimedia, a taxa de cliques é definida da seguinte maneira:
+
+_clickthrough rate: the proportion of search sessions where the user clicked on one of the results displayed_
+
+Para isso é preciso criar novas variáveis que permitam identificar as buscas e também as visitas dentre de cada busca. Faremos isso usando o código a seguir.
+
+```{r Creating sequence numbers for searches and visits}
+events = events %>% 
+    group_by(session_id) %>% 
+    arrange(timestamp) %>% 
+    mutate(
+        search_index = cumsum(action == "searchResultPage") # Sequenciador de buscas realizadas dentro de cada sessÃ£o.
+    )
+
+events = events %>% 
+    group_by(session_id, search_index) %>% 
+    arrange(timestamp) %>% 
+    mutate(
+        visit_index = cumsum(action == "visitPage") # Sequenciador de visitas realizadas dentro de cada resultado de pesquisa.
+    )
+```
+
+A seguir visualizamos a _clickthrough rate_ ao longo dos dias para cada grupo, para ter uma noção de como os dados se comportam.
+
+```{r Preparing data to answer the original question 1, echo=FALSE}
+events_q1 = events %>%
+  group_by(group, date_week, session_id, search_index) %>% 
+  summarize(click_count = max(visit_index)) %>% 
+  group_by(group, date_week) %>% 
+  summarize(
+    clickthroughrate = (sum(click_count>0) / sum(click_count>=0)) * 100
+  )
+
+
+events_q1 %>% 
+    ggplot(aes(x = date_week, y = clickthroughrate, fill = group)) +
+    geom_col(position = "dodge") +
+    labs(x = "Dias", y = "Taxa de cliques (%)", fill = "Grupos", title = "Taxa geral de cliques por dia e por grupo") +
+    theme(axis.text.x = element_text(angle=60, hjust=1))
+```
+
+
+## Analisando a diferença da média de taxa de cliques entre o grupo A e o grupo B
+
+Agora sim, de fato, faremos uma comparação entre os grupos usando teste de hipóteses através de **permutações aleatórias dos grupos A e B**.
+
+```{r Performing permutation test to answer question 1}
+events_q1dif = events %>% 
+    group_by(group, session_id, search_index) %>% 
+    mutate(click_count = max(visit_index)) %>% 
+    subset(action == "searchResultPage", select = c("group", "click_count"))
+
+permutationTest2(events_q1dif, mean((sum(click_count>0) / sum(click_count>=0)) * 100), treatment = group)
+```
+
+Aplicando o teste de permutações observa-se que há uma diferença significativa em torno de 13,63 pontos percentuais quando comparamos a média taxa de cliques do grupo A contra a média do grupo B. Isso se confirma observando o p-value que resultou em 0,0002 e representa, portanto, uma possibilidade muito baixa (0,02%) de que a diferença das médias entre o grupo A e o grupo B seja nula.
+
+## PERGUNTA 3:
+## Existe diferença significativa entre a taxa geral de pesquisas sem resultados dos grupos?
+
+Para responder esta questão precisamos contar a quantidade eventos do tipo "searchResultPage" que possuem a coluna *n_result* zerada e dividir esse resultado pela quantidade total de eventos desse mesmo tipo.
+
+O gráfico que segue é bem semelhante ao gráfico plotado na questão 1, só muda a informação que estamos medindo, que aqui é a taxa de resultados nulos, por assim dizer.
+
+De fato, este gráfico é apenas para termos uma noção geral do comportamento dos dados. A análise por teste de hipóteses será realizada no tópico seguinte.
+
+```{r Preparing data to answer the original question 3, echo=FALSE}
+events_q3 = events %>%
+    group_by(group, date_week) %>% 
+    summarise(
+        zerorate = sum(action == "searchResultPage" & n_results == 0)/sum(action == "searchResultPage")*100
+    )
+
+events_q3 %>% 
+    ggplot(aes(x = date_week, y = zerorate, fill = group)) +
+    geom_col(position = "dodge") +
+    labs(x = "Dias", y = "Taxa de resultados nulos (%)", fill = "Grupos", title = "Taxa de pesquisas sem resultado por dia e por grupo") +
+    theme(axis.text.x = element_text(angle=60, hjust=1))
+```
+
+## Analisando a diferença da média de taxa de pesquisas sem resultado entre o grupo A e o grupo B
+
+Agora sim, segue o código para realizar a análise da diferença entre os grupos utilizando teste de hipóteses por **permutações aleatórias dos grupos A e B**.
+
+```{r Performing permutation test to answer question 3}
+events_q3dif = events %>% 
+    group_by(group, session_id, search_index) %>% 
+    subset(action == "searchResultPage", select = c("group", "n_results"))
+
+permutationTest2(events_q3dif, statistic = mean((sum(n_results==0) / sum(n_results>=0)) * 100), treatment = group)
+
+```
+
+Aplicando o teste de permutações observa-se que **NÃO HÁ** uma diferença significativa quando comparamos a média da taxa de pesquisas sem resultados no grupo A contra a média no grupo B. Isso se confirma observando o p-value que resultou em 0,1248 e representa, portanto, possibilidade significativa (12,48%) de que a diferença das médias entre o grupo A e o grupo B seja nula.
+
+# Comentários: Teste de Hipóteses vs Intervalos de Confiança
+
+Após a compreensão e aplicação do teste de hipóteses (TH), tive a impressão que esta abordagem tem aplicação mais restrita que os intervalos de confiança (IC). Isso se deve ao fato de que para aplicar TH precisamos sempre comparar grupos distintos de amostras e normalmente fazemos isso para confirmar ou descartar associação entre tais grupos.
+
+Já os ICs permitem realizar inferências mais diversificadas sobre a população, por exemplos estimar o valor de determinada medida para um único grupo, ou até mesmo quando não existe alguma seguimentação evidente.
+
+Além disso os ICs nos trazem mais informações além simplesmente do percentual de significância existente nos THs.
